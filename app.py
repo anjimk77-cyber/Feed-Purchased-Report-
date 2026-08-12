@@ -17,7 +17,7 @@ import io
 import pandas as pd
 import streamlit as st
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+from openpyxl.styles import Font
 
 st.set_page_config(page_title="Customer Feed Purchase Report", layout="wide")
 
@@ -95,6 +95,12 @@ def load_customer_master(path: str) -> pd.DataFrame:
 # REPORT BUILDER
 # ----------------------------------------------------------------------
 def build_report(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
+    sales = sales.merge(customers, on="Customer Code", how="left")
+
+    # Prefer the name from the sales log; fall back to master list name
+    if "Customer Name (Master)" in sales.columns:
+        sales["Customer Name"] = sales["Customer Name"].fillna(sales["Customer Name (Master)"])
+
     # Only consider Feed items (Item No. starts with FEED), excluding returns
     # (rows where Quantity is negative)
     feed_sales = sales[
@@ -104,18 +110,14 @@ def build_report(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
     # Last feed purchase date per customer
     last_feed = feed_sales.groupby("Customer Code")["Date"].max().rename("Last Feed Purchase Date")
 
-    # Customer Name — prefer the name as it appears in the sales log,
-    # fall back to the master list name if the customer has no feed purchases
-    name_from_sales = feed_sales.sort_values("Date").groupby("Customer Code")["Customer Name"].last()
+    # Static per-customer info (name, zone) — take the latest non-null row
+    info = (
+        feed_sales.sort_values("Date")
+        .groupby("Customer Code")
+        .agg({"Customer Name": "last", "Zone": "last"})
+    )
 
-    # Start from the FULL customer/zone list so every zone (and every
-    # customer, even those with zero feed purchases) appears in the report
-    report = customers.copy()
-    report["Customer Name"] = report["Customer Code"].map(name_from_sales)
-    if "Customer Name (Master)" in report.columns:
-        report["Customer Name"] = report["Customer Name"].fillna(report["Customer Name (Master)"])
-
-    report = report.merge(last_feed, on="Customer Code", how="left")
+    report = info.join(last_feed).reset_index()
 
     # Due date last Purchase = number of days between today and Last Feed Purchase Date
     today = pd.Timestamp.now().normalize()
@@ -140,8 +142,6 @@ def build_report(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
     report = report.merge(last_order, on="Customer Code", how="left")
 
     report["Last Feed Purchase Date"] = report["Last Feed Purchase Date"].dt.strftime("%Y-%m-%d")
-    report["Last Feed Purchase Date"] = report["Last Feed Purchase Date"].fillna("")
-    report["Last Order"] = report["Last Order"].fillna("")
 
     # Zone kept in the dataframe (used for filtering) but not shown in the final table
     report = report[
@@ -161,19 +161,12 @@ def build_excel(report_df: pd.DataFrame, zones_in_order: list, display_cols: lis
 
     zone_font = Font(bold=True, size=13)
     header_font = Font(bold=True)
-    due_font = Font(bold=True)
-    center_align = Alignment(horizontal="center", vertical="center")
-    thin = Side(style="thin", color="000000")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-
-    due_col_idx = display_cols.index("Due date last Purchase") + 1
 
     row = 1
     for zone in zones_in_order:
         zone_table = report_df[report_df["Zone"] == zone][display_cols]
 
-        # Zone name row (no border/fill — just a section title)
+        # Zone name row
         ws.cell(row=row, column=1, value=zone).font = zone_font
         row += 1
 
@@ -181,21 +174,12 @@ def build_excel(report_df: pd.DataFrame, zones_in_order: list, display_cols: lis
         for col_idx, col_name in enumerate(display_cols, start=1):
             cell = ws.cell(row=row, column=col_idx, value=col_name)
             cell.font = header_font
-            cell.alignment = center_align
-            cell.border = border
-            if col_idx == due_col_idx:
-                cell.fill = yellow_fill
         row += 1
 
         # Data rows
         for _, data_row in zone_table.iterrows():
             for col_idx, col_name in enumerate(display_cols, start=1):
-                cell = ws.cell(row=row, column=col_idx, value=data_row[col_name])
-                cell.alignment = center_align
-                cell.border = border
-                if col_idx == due_col_idx:
-                    cell.fill = yellow_fill
-                    cell.font = due_font
+                ws.cell(row=row, column=col_idx, value=data_row[col_name])
             row += 1
 
         # Blank spacer row before the next zone
