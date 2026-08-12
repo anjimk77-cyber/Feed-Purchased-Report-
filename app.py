@@ -98,8 +98,11 @@ def build_report(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
     if "Customer Name (Master)" in sales.columns:
         sales["Customer Name"] = sales["Customer Name"].fillna(sales["Customer Name (Master)"])
 
-    # Only consider Feed items (Item No. starts with FEED) — everything else is ignored
-    feed_sales = sales[sales["Item No."].str.upper().str.startswith(FEED_PREFIX)].copy()
+    # Only consider Feed items (Item No. starts with FEED), excluding returns
+    # (rows where Quantity is negative)
+    feed_sales = sales[
+        sales["Item No."].str.upper().str.startswith(FEED_PREFIX) & (sales["Quantity"] > 0)
+    ].copy()
 
     # Last feed purchase date per customer
     last_feed = feed_sales.groupby("Customer Code")["Date"].max().rename("Last Feed Purchase Date")
