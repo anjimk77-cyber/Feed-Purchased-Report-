@@ -183,8 +183,8 @@ def build_sales_dashboard_data(sales: pd.DataFrame, customers: pd.DataFrame):
         p = df["Item No."].str.upper().str.startswith(PROB_PREFIX)
         return {
             "Total Sales": df["Sales Amt"].sum(),
-            "Total Feed Sales": df.loc[f & (df["Quantity"] > 0), "Sales Amt"].sum(),
-            "Total Probiotic Sales": df.loc[p & (df["Quantity"] > 0), "Sales Amt"].sum(),
+            "Total Feed Sales": df.loc[f, "Sales Amt"].sum(),
+            "Total Probiotic Sales": df.loc[p, "Sales Amt"].sum(),
             "Total Returns of Feed": -df.loc[f & (df["Quantity"] < 0), "Sales Amt"].sum(),
             "Total Returns of Probiotic": -df.loc[p & (df["Quantity"] < 0), "Sales Amt"].sum(),
         }
