@@ -20,7 +20,9 @@ import streamlit as st
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
-st.set_page_config(page_title="Customer Feed Purchase Report", layout="wide")
+REPORT_OPTIONS = ["Last Feed Purchase Date Report", "Item Wise Custom Feed Purchased Report", "Sales Performance Dashboard"]
+_current_report = st.session_state.get("report_choice", REPORT_OPTIONS[0])
+st.set_page_config(page_title=_current_report, layout="wide",page_icon="📦")
 
 # ----------------------------------------------------------------------
 # CONFIG — edit these if your sheet changes
@@ -306,7 +308,8 @@ def build_item_excel(df: pd.DataFrame, item_desc: str, date_range_str: str) -> b
 # ----------------------------------------------------------------------
 report_choice = st.radio(
     "Select Report",
-    ["Last Feed Purchase Date Report", "Item Wise Custom Feed Purchased Report", "Sales Performance Dashboard"],
+    REPORT_OPTIONS,
+    key="report_choice",
 )
 
 st.title(f"📦 {report_choice}")
