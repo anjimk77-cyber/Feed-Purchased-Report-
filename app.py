@@ -320,8 +320,12 @@ else:  # Item Wise Custom Feed Purchased Report
     min_date = feed_sales_all["Date"].min()
     max_date = feed_sales_all["Date"].max()
 
-    st.subheader("🔍 Select Item & Date Range")
+    st.subheader("🔍 Select Item, Zone & Date Range")
     selected_item = st.selectbox("Item Description", options=item_options)
+
+    zones_item = sorted([z for z in feed_sales_all["Zone"].dropna().unique() if z and z != "nan"])
+    selected_zones_item = st.multiselect("Zone", options=zones_item, default=zones_item)
+
     date_range = st.date_input(
         "Date Range",
         value=(min_date.date(), max_date.date()),
@@ -333,6 +337,7 @@ else:  # Item Wise Custom Feed Purchased Report
         start_date, end_date = date_range
         mask = (
             (feed_sales_all["Item Description"] == selected_item)
+            & (feed_sales_all["Zone"].isin(selected_zones_item))
             & (feed_sales_all["Date"] >= pd.Timestamp(start_date))
             & (feed_sales_all["Date"] <= pd.Timestamp(end_date))
         )
