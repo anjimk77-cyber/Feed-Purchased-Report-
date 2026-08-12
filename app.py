@@ -19,7 +19,7 @@ import streamlit as st
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
-st.set_page_config(page_title="Customer Feed Purchase Report", layout="wide",page_icon="📦")
+st.set_page_config(page_title="Customer Feed Purchase Report", layout="wide")
 
 # ----------------------------------------------------------------------
 # CONFIG — edit these if your sheet changes
@@ -27,6 +27,7 @@ st.set_page_config(page_title="Customer Feed Purchase Report", layout="wide",pag
 SHEET_ID = "1S3csAE-E_hN8vstuHR0KkeAN7yCVQTFe4AkEVlw4vQw"
 DEFAULT_GID = "0"                 # tab (gid) of the sales data sheet
 FEED_PREFIX = "FEED"              # Item No. prefix that identifies "feed" items
+PROB_PREFIX = "PROB"              # Item No. prefix that identifies "probiotic" items
 CUSTOMER_LIST_PATH = "Customer List.xlsx"   # <-- change to match the filename you committed to GitHub
 
 # ----------------------------------------------------------------------
@@ -166,6 +167,41 @@ def get_feed_sales(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame
     return feed_sales
 
 
+def build_sales_dashboard_data(sales: pd.DataFrame, customers: pd.DataFrame):
+    """
+    Overall + zone-wise totals for the Sales Performance Dashboard.
+    Feed = Item No. starts with FEED, Probiotic = Item No. starts with PROB.
+    Returns = rows with negative Quantity (shown as a positive returns value).
+    """
+    merged = sales.merge(customers, on="Customer Code", how="left")
+    is_feed = merged["Item No."].str.upper().str.startswith(FEED_PREFIX)
+    is_prob = merged["Item No."].str.upper().str.startswith(PROB_PREFIX)
+
+    def metrics_for(df: pd.DataFrame) -> dict:
+        f = df["Item No."].str.upper().str.startswith(FEED_PREFIX)
+        p = df["Item No."].str.upper().str.startswith(PROB_PREFIX)
+        return {
+            "Total Sales": df["Sales Amt"].sum(),
+            "Total Feed Sales": df.loc[f & (df["Quantity"] > 0), "Sales Amt"].sum(),
+            "Total Probiotic Sales": df.loc[p & (df["Quantity"] > 0), "Sales Amt"].sum(),
+            "Total Returns of Feed": -df.loc[f & (df["Quantity"] < 0), "Sales Amt"].sum(),
+            "Total Returns of Probiotic": -df.loc[p & (df["Quantity"] < 0), "Sales Amt"].sum(),
+        }
+
+    overall = metrics_for(merged)
+
+    zone_rows = []
+    for zone, grp in merged.groupby("Zone"):
+        if not zone or zone == "nan":
+            continue
+        row = {"Zone": zone}
+        row.update(metrics_for(grp))
+        zone_rows.append(row)
+
+    zone_df = pd.DataFrame(zone_rows).sort_values("Zone").reset_index(drop=True)
+    return overall, zone_df
+
+
 # ----------------------------------------------------------------------
 # EXCEL EXPORT — one sheet, zone blocks stacked one after another
 # ----------------------------------------------------------------------
@@ -269,7 +305,7 @@ def build_item_excel(df: pd.DataFrame, item_desc: str, date_range_str: str) -> b
 # ----------------------------------------------------------------------
 report_choice = st.radio(
     "Select Report",
-    ["Last Feed Purchase Date Report", "Item Wise Custom Feed Purchased Report"],
+    ["Last Feed Purchase Date Report", "Item Wise Custom Feed Purchased Report", "Sales Performance Dashboard"],
 )
 
 st.title(f"📦 {report_choice}")
@@ -313,7 +349,7 @@ if report_choice == "Last Feed Purchase Date Report":
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-else:  # Item Wise Custom Feed Purchased Report
+elif report_choice == "Item Wise Custom Feed Purchased Report":
     feed_sales_all = get_feed_sales(sales_df, customers_df)
 
     item_options = sorted(feed_sales_all["Item Description"].dropna().unique())
@@ -367,3 +403,23 @@ else:  # Item Wise Custom Feed Purchased Report
         )
     else:
         st.info("👆 Select a start and end date to display the report.")
+
+else:  # Sales Performance Dashboard
+    overall, zone_df = build_sales_dashboard_data(sales_df, customers_df)
+
+    st.subheader("📊 Overall Performance")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total Sales", f"{overall['Total Sales']:,.0f}")
+    c2.metric("Total Feed Sales", f"{overall['Total Feed Sales']:,.0f}")
+    c3.metric("Total Probiotic Sales", f"{overall['Total Probiotic Sales']:,.0f}")
+    c4.metric("Total Returns of Feed", f"{overall['Total Returns of Feed']:,.0f}")
+    c5.metric("Total Returns of Probiotic", f"{overall['Total Returns of Probiotic']:,.0f}")
+
+    st.markdown("---")
+    st.subheader("🌍 Zone Wise Comparison")
+
+    if zone_df.empty:
+        st.info("No zone data available to compare.")
+    else:
+        st.bar_chart(zone_df.set_index("Zone"))
+        st.dataframe(zone_df, use_container_width=True, hide_index=True)
