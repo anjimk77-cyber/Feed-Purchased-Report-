@@ -14,6 +14,7 @@ Run with:
 """
 
 import io
+import altair as alt
 import pandas as pd
 import streamlit as st
 from openpyxl import Workbook
@@ -200,35 +201,6 @@ def build_sales_dashboard_data(sales: pd.DataFrame, customers: pd.DataFrame):
 
     zone_df = pd.DataFrame(zone_rows).sort_values("Zone").reset_index(drop=True)
     return overall, zone_df
-
-
-def build_daily_zone_metrics(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
-    """
-    Day-by-day, zone-wise totals for the 5 metrics, used to draw the
-    Sales Performance Dashboard's line charts.
-    """
-    merged = sales.merge(customers, on="Customer Code", how="left")
-    item_no = merged["Item No."].str.upper()
-    is_feed = item_no.str.startswith(FEED_PREFIX)
-    is_prob = item_no.str.startswith(PROB_PREFIX)
-    is_sale = merged["Quantity"] > 0
-    is_return = merged["Quantity"] < 0
-
-    merged["Total Sales"] = merged["Sales Amt"].where(is_sale, 0)
-    merged["Total Feed Sales"] = merged["Sales Amt"].where(is_feed & is_sale, 0)
-    merged["Total Probiotic Sales"] = merged["Sales Amt"].where(is_prob & is_sale, 0)
-    merged["Total Returns of Feed"] = (-merged["Sales Amt"]).where(is_feed & is_return, 0)
-    merged["Total Returns of Probiotic"] = (-merged["Sales Amt"]).where(is_prob & is_return, 0)
-
-    daily = (
-        merged.groupby(["Date", "Zone"])[
-            ["Total Sales", "Total Feed Sales", "Total Probiotic Sales",
-             "Total Returns of Feed", "Total Returns of Probiotic"]
-        ]
-        .sum()
-        .reset_index()
-    )
-    return daily
 
 
 # ----------------------------------------------------------------------
@@ -474,10 +446,7 @@ else:  # Sales Performance Dashboard
             st.dataframe(styled_zone_df, use_container_width=True)
 
             st.markdown("---")
-            st.subheader("📈 Zone Wise Trend (Chilaw, Puttalam, Middle Zone, Batticaloa)")
-
-            daily = build_daily_zone_metrics(sales_df_dash, customers_df)
-            daily = daily[daily["Zone"].notna() & (daily["Zone"] != "nan")]
+            st.subheader("📊 Zone Wise Comparison Charts (Chilaw, Puttalam, Middle Zone, Batticaloa)")
 
             trend_metrics = [
                 "Total Sales", "Total Feed Sales", "Total Probiotic Sales",
@@ -485,7 +454,14 @@ else:  # Sales Performance Dashboard
             ]
             for metric in trend_metrics:
                 st.markdown(f"**{metric}**")
-                pivot_df = daily.pivot(index="Date", columns="Zone", values=metric).fillna(0).sort_index()
-                st.line_chart(pivot_df)
+                chart_data = zone_df[["Zone", metric]]
+                bars = alt.Chart(chart_data).mark_bar().encode(
+                    x=alt.X("Zone:N", sort=None, title="Zone"),
+                    y=alt.Y(f"{metric}:Q", title=metric),
+                )
+                labels = bars.mark_text(align="center", baseline="bottom", dy=-4).encode(
+                    text=alt.Text(f"{metric}:Q", format=",.0f")
+                )
+                st.altair_chart(bars + labels, use_container_width=True)
     else:
         st.info("👆 Select a start and end date to display the dashboard.")
