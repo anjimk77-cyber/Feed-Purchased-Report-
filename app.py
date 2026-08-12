@@ -405,21 +405,43 @@ elif report_choice == "Item Wise Custom Feed Purchased Report":
         st.info("👆 Select a start and end date to display the report.")
 
 else:  # Sales Performance Dashboard
-    overall, zone_df = build_sales_dashboard_data(sales_df, customers_df)
+    st.subheader("📅 Select Date Range")
+    dash_min_date = sales_df["Date"].min()
+    dash_max_date = sales_df["Date"].max()
+    dash_date_range = st.date_input(
+        "Date Range",
+        value=(dash_min_date.date(), dash_max_date.date()),
+        min_value=dash_min_date.date(),
+        max_value=dash_max_date.date(),
+    )
 
-    st.subheader("📊 Overall Performance")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Total Sales", f"{overall['Total Sales']:,.0f}")
-    c2.metric("Total Feed Sales", f"{overall['Total Feed Sales']:,.0f}")
-    c3.metric("Total Probiotic Sales", f"{overall['Total Probiotic Sales']:,.0f}")
-    c4.metric("Total Returns of Feed", f"{overall['Total Returns of Feed']:,.0f}")
-    c5.metric("Total Returns of Probiotic", f"{overall['Total Returns of Probiotic']:,.0f}")
+    if isinstance(dash_date_range, tuple) and len(dash_date_range) == 2:
+        dash_start, dash_end = dash_date_range
+        sales_df_dash = sales_df[
+            (sales_df["Date"] >= pd.Timestamp(dash_start)) & (sales_df["Date"] <= pd.Timestamp(dash_end))
+        ]
 
-    st.markdown("---")
-    st.subheader("🌍 Zone Wise Comparison")
+        overall, zone_df = build_sales_dashboard_data(sales_df_dash, customers_df)
 
-    if zone_df.empty:
-        st.info("No zone data available to compare.")
+        st.subheader("📊 Overall Performance")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Total Sales", f"{overall['Total Sales']:,.0f}")
+        c2.metric("Total Feed Sales", f"{overall['Total Feed Sales']:,.0f}")
+        c3.metric("Total Probiotic Sales", f"{overall['Total Probiotic Sales']:,.0f}")
+        c4.metric("Total Returns of Feed", f"{overall['Total Returns of Feed']:,.0f}")
+        c5.metric("Total Returns of Probiotic", f"{overall['Total Returns of Probiotic']:,.0f}")
+
+        st.markdown("---")
+        st.subheader("🌍 Zone Wise Comparison")
+
+        if zone_df.empty:
+            st.info("No zone data available to compare.")
+        else:
+            numeric_cols = [c for c in zone_df.columns if c != "Zone"]
+            styled_zone_df = (
+                zone_df.style.hide(axis="index")
+                .highlight_max(subset=numeric_cols, color="#ffff66")
+            )
+            st.dataframe(styled_zone_df, use_container_width=True)
     else:
-        st.bar_chart(zone_df.set_index("Zone"))
-        st.dataframe(zone_df, use_container_width=True, hide_index=True)
+        st.info("👆 Select a start and end date to display the dashboard.")
