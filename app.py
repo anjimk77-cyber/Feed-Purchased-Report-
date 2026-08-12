@@ -227,31 +227,37 @@ def build_excel(report_df: pd.DataFrame, zones_in_order: list, display_cols: lis
 # ----------------------------------------------------------------------
 # EXCEL EXPORT — flat table, used by the Item Wise Custom Feed Purchased Report
 # ----------------------------------------------------------------------
-def build_item_excel(df: pd.DataFrame) -> bytes:
+def build_item_excel(df: pd.DataFrame, item_desc: str, date_range_str: str) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Item Wise Report"
 
+    title_font = Font(bold=True, size=13)
     header_font = Font(bold=True)
     center_align = Alignment(horizontal="center", vertical="center")
     thin = Side(style="thin", color="000000")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
+    # Row 1: selected Item Description, Row 2: selected Date Range
+    ws.cell(row=1, column=1, value=f"Item Description: {item_desc}").font = title_font
+    ws.cell(row=2, column=1, value=f"Date Range: {date_range_str}").font = title_font
+
     cols = list(df.columns)
+    header_row = 3
     for col_idx, col_name in enumerate(cols, start=1):
-        cell = ws.cell(row=1, column=col_idx, value=col_name)
+        cell = ws.cell(row=header_row, column=col_idx, value=col_name)
         cell.font = header_font
         cell.alignment = center_align
         cell.border = border
 
-    for r_idx, (_, data_row) in enumerate(df.iterrows(), start=2):
+    for r_idx, (_, data_row) in enumerate(df.iterrows(), start=header_row + 1):
         for col_idx, col_name in enumerate(cols, start=1):
             cell = ws.cell(row=r_idx, column=col_idx, value=data_row[col_name])
             cell.alignment = center_align
             cell.border = border
 
     for col_idx, col_name in enumerate(cols, start=1):
-        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = max(18, len(col_name) + 2)
+        ws.column_dimensions[ws.cell(row=header_row, column=col_idx).column_letter].width = max(18, len(col_name) + 2)
 
     buffer = io.BytesIO()
     wb.save(buffer)
@@ -343,7 +349,11 @@ else:  # Item Wise Custom Feed Purchased Report
             hide_index=True,
         )
 
-        item_excel_bytes = build_item_excel(item_table)
+        item_excel_bytes = build_item_excel(
+            item_table,
+            selected_item,
+            f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
+        )
         st.download_button(
             "⬇️ Download Excel Report",
             data=item_excel_bytes,
