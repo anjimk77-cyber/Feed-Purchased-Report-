@@ -124,16 +124,25 @@ def build_report(sales: pd.DataFrame, customers: pd.DataFrame, due_days: int) ->
     report["Due date last Purchase"] = report["Last Feed Purchase Date"] + timedelta(days=due_days)
 
     today = pd.Timestamp.now().normalize()
-    report["Status"] = report["Due date last Purchase"].apply(
-        lambda d: "Overdue" if pd.notna(d) and d < today else ("Due Soon" if pd.notna(d) else "No Feed Purchase")
-    )
+
+    def remark(d):
+        if pd.isna(d):
+            return "No Feed Purchase"
+        elif d < today:
+            return "Overdue"
+        elif d <= today + timedelta(days=7):
+            return "Due Soon"
+        return "OK"
+
+    report["Remarks"] = report["Due date last Purchase"].apply(remark)
 
     for col in ["Last Feed Purchase Date", "Due date last Purchase", "Last Order"]:
         report[col] = report[col].dt.strftime("%Y-%m-%d")
 
+    # Zone kept in the dataframe (used for filtering) but not shown in the final table
     report = report[
         ["Customer Code", "Customer Name", "Zone", "Last Feed Purchase Date",
-         "Due date last Purchase", "Last Order", "Status"]
+         "Due date last Purchase", "Remarks", "Last Order"]
     ]
     return report.sort_values("Customer Code").reset_index(drop=True)
 
@@ -167,38 +176,46 @@ except Exception as e:
 
 report_df = build_report(sales_df, customers_df, due_days)
 
-# Zone-wise slicer
+# Zone-wise slicer — table only appears after a zone is picked
 zones = sorted([z for z in report_df["Zone"].dropna().unique() if z and z != "nan"])
-with st.sidebar:
-    st.markdown("---")
-    selected_zones = st.multiselect("🌍 Filter by Zone", options=zones, default=zones)
 
-filtered = report_df[report_df["Zone"].isin(selected_zones)] if selected_zones else report_df
+st.subheader("🌍 Select Zone")
+selected_zones = st.multiselect("Zone", options=zones, placeholder="Choose one or more zones...")
+
+if not selected_zones:
+    st.info("👆 Select at least one zone above to display the report.")
+    st.stop()
+
+filtered = report_df[report_df["Zone"].isin(selected_zones)]
+
+DISPLAY_COLS = ["Customer Code", "Customer Name", "Last Feed Purchase Date",
+                "Due date last Purchase", "Remarks", "Last Order"]
+table = filtered[DISPLAY_COLS]
 
 # ----------------------------------------------------------------------
 # DISPLAY
 # ----------------------------------------------------------------------
 col1, col2, col3 = st.columns(3)
-col1.metric("Customers Shown", len(filtered))
-col2.metric("Overdue", (filtered["Status"] == "Overdue").sum())
-col3.metric("Due Soon", (filtered["Status"] == "Due Soon").sum())
+col1.metric("Customers Shown", len(table))
+col2.metric("Overdue", (table["Remarks"] == "Overdue").sum())
+col3.metric("Due Soon", (table["Remarks"] == "Due Soon").sum())
 
 st.markdown("---")
 
 
-def highlight_status(row):
-    if row["Status"] == "Overdue":
+def highlight_remarks(row):
+    if row["Remarks"] == "Overdue":
         return ["background-color: #ffcccc"] * len(row)
-    elif row["Status"] == "Due Soon":
+    elif row["Remarks"] == "Due Soon":
         return ["background-color: #fff3cd"] * len(row)
     return [""] * len(row)
 
 
 st.dataframe(
-    filtered.style.apply(highlight_status, axis=1),
+    table.style.apply(highlight_remarks, axis=1),
     use_container_width=True,
     hide_index=True,
 )
 
-csv = filtered.to_csv(index=False).encode("utf-8")
+csv = table.to_csv(index=False).encode("utf-8")
 st.download_button("⬇️ Download Report as CSV", data=csv, file_name="feed_purchase_report.csv", mime="text/csv")
