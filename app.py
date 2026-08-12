@@ -13,8 +13,11 @@ Run with:
     streamlit run app.py
 """
 
+import io
 import pandas as pd
 import streamlit as st
+from openpyxl import Workbook
+from openpyxl.styles import Font
 
 st.set_page_config(page_title="Customer Feed Purchase Report", layout="wide")
 
@@ -149,6 +152,48 @@ def build_report(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
 
 
 # ----------------------------------------------------------------------
+# EXCEL EXPORT — one sheet, zone blocks stacked one after another
+# ----------------------------------------------------------------------
+def build_excel(report_df: pd.DataFrame, zones_in_order: list, display_cols: list) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Feed Purchase Report"
+
+    zone_font = Font(bold=True, size=13)
+    header_font = Font(bold=True)
+
+    row = 1
+    for zone in zones_in_order:
+        zone_table = report_df[report_df["Zone"] == zone][display_cols]
+
+        # Zone name row
+        ws.cell(row=row, column=1, value=zone).font = zone_font
+        row += 1
+
+        # Header row
+        for col_idx, col_name in enumerate(display_cols, start=1):
+            cell = ws.cell(row=row, column=col_idx, value=col_name)
+            cell.font = header_font
+        row += 1
+
+        # Data rows
+        for _, data_row in zone_table.iterrows():
+            for col_idx, col_name in enumerate(display_cols, start=1):
+                ws.cell(row=row, column=col_idx, value=data_row[col_name])
+            row += 1
+
+        # Blank spacer row before the next zone
+        row += 1
+
+    for col_idx, col_name in enumerate(display_cols, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = max(18, len(col_name) + 2)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+# ----------------------------------------------------------------------
 # UI
 # ----------------------------------------------------------------------
 st.title("📦 Customer Feed Purchase Report")
@@ -187,5 +232,10 @@ st.dataframe(
     hide_index=True,
 )
 
-csv = table.to_csv(index=False).encode("utf-8")
-st.download_button("⬇️ Download Report as CSV", data=csv, file_name="feed_purchase_report.csv", mime="text/csv")
+excel_bytes = build_excel(report_df, selected_zones, DISPLAY_COLS)
+st.download_button(
+    "⬇️ Download Excel Report",
+    data=excel_bytes,
+    file_name="feed_purchase_report.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
