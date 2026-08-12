@@ -19,7 +19,7 @@ import streamlit as st
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
-st.set_page_config(page_title="Customer Feed Purchase Report", layout="wide")
+st.set_page_config(page_title="Customer Feed Purchase Report", layout="wide",page_icon="📦")
 
 # ----------------------------------------------------------------------
 # CONFIG — edit these if your sheet changes
