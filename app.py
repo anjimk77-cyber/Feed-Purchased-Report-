@@ -441,6 +441,7 @@ else:  # Sales Performance Dashboard
             numeric_cols = [c for c in zone_df.columns if c != "Zone"]
             styled_zone_df = (
                 zone_df.style.hide(axis="index")
+                .format({c: "{:.2f}" for c in numeric_cols})
                 .highlight_max(subset=numeric_cols, color="#ffff66")
             )
             st.dataframe(styled_zone_df, use_container_width=True)
