@@ -98,29 +98,20 @@ def build_report(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
     if "Customer Name (Master)" in sales.columns:
         sales["Customer Name"] = sales["Customer Name"].fillna(sales["Customer Name (Master)"])
 
-    is_feed = sales["Item No."].str.upper().str.startswith(FEED_PREFIX)
+    # Only consider Feed items (Item No. starts with FEED) — everything else is ignored
+    feed_sales = sales[sales["Item No."].str.upper().str.startswith(FEED_PREFIX)].copy()
 
-    # Last order overall (any item) — need the full row so we can show
-    # the Item Description and Quantity of that specific order too
-    last_order_idx = sales.groupby("Customer Code")["Date"].idxmax()
-    last_order_rows = sales.loc[
-        last_order_idx, ["Customer Code", "Date", "Item Description", "Quantity"]
-    ].rename(columns={"Date": "Last Order"})
-
-    # Last feed purchase only (Item No. starting with FEED)
-    feed_sales = sales[is_feed]
-    last_feed = (
-        feed_sales.groupby("Customer Code")["Date"].max().rename("Last Feed Purchase Date")
-    )
+    # Last feed purchase date per customer
+    last_feed = feed_sales.groupby("Customer Code")["Date"].max().rename("Last Feed Purchase Date")
 
     # Static per-customer info (name, zone) — take the latest non-null row
     info = (
-        sales.sort_values("Date")
+        feed_sales.sort_values("Date")
         .groupby("Customer Code")
         .agg({"Customer Name": "last", "Zone": "last"})
     )
 
-    report = info.join(last_feed).reset_index().merge(last_order_rows, on="Customer Code", how="left")
+    report = info.join(last_feed).reset_index()
 
     # Due date last Purchase = number of days between today and Last Feed Purchase Date
     today = pd.Timestamp.now().normalize()
@@ -129,13 +120,27 @@ def build_report(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
     # No "Remarks" column exists in the source sheet — kept empty
     report["Remarks"] = ""
 
-    for col in ["Last Feed Purchase Date", "Last Order"]:
-        report[col] = report[col].dt.strftime("%Y-%m-%d")
+    # Last Order = all Item Description + Quantity pairs on that customer's
+    # last feed purchase date, combined into a single readable string
+    merged = feed_sales.merge(
+        report[["Customer Code", "Last Feed Purchase Date"]], on="Customer Code", how="inner"
+    )
+    same_day = merged[merged["Date"] == merged["Last Feed Purchase Date"]]
+
+    def combine_items(rows: pd.DataFrame) -> str:
+        parts = [f"{desc} (Qty: {qty:g})" for desc, qty in zip(rows["Item Description"], rows["Quantity"])]
+        return ", ".join(parts)
+
+    last_order = same_day.groupby("Customer Code").apply(combine_items).rename("Last Order")
+
+    report = report.merge(last_order, on="Customer Code", how="left")
+
+    report["Last Feed Purchase Date"] = report["Last Feed Purchase Date"].dt.strftime("%Y-%m-%d")
 
     # Zone kept in the dataframe (used for filtering) but not shown in the final table
     report = report[
         ["Customer Code", "Customer Name", "Zone", "Last Feed Purchase Date",
-         "Due date last Purchase", "Remarks", "Last Order", "Item Description", "Quantity"]
+         "Due date last Purchase", "Remarks", "Last Order"]
     ]
     return report.sort_values("Customer Code").reset_index(drop=True)
 
@@ -145,12 +150,8 @@ def build_report(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
 # ----------------------------------------------------------------------
 st.title("📦 Customer Feed Purchase Report")
 
-with st.sidebar:
-    st.header("⚙️ Settings")
-    gid = st.text_input("Sales sheet tab (gid)", value=DEFAULT_GID)
-
 try:
-    sales_df = load_sales_data(SHEET_ID, gid)
+    sales_df = load_sales_data(SHEET_ID, DEFAULT_GID)
     customers_df = load_customer_master(CUSTOMER_LIST_PATH)
 except Exception as e:
     st.error(f"Error loading data: {e}")
@@ -171,16 +172,12 @@ if not selected_zones:
 filtered = report_df[report_df["Zone"].isin(selected_zones)]
 
 DISPLAY_COLS = ["Customer Code", "Customer Name", "Last Feed Purchase Date",
-                "Due date last Purchase", "Remarks", "Last Order", "Item Description", "Quantity"]
+                "Due date last Purchase", "Remarks", "Last Order"]
 table = filtered[DISPLAY_COLS]
 
 # ----------------------------------------------------------------------
 # DISPLAY
 # ----------------------------------------------------------------------
-st.metric("Customers Shown", len(table))
-
-st.markdown("---")
-
 st.dataframe(
     table,
     use_container_width=True,
