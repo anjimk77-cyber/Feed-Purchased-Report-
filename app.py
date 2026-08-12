@@ -134,7 +134,7 @@ def build_report(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
     same_day = merged[merged["Date"] == merged["Last Feed Purchase Date"]]
 
     def combine_items(rows: pd.DataFrame) -> str:
-        parts = [f"{desc} (Qty: {qty:g})" for desc, qty in zip(rows["Item Description"], rows["Quantity"])]
+        parts = [f"{desc} ({qty:g})" for desc, qty in zip(rows["Item Description"], rows["Quantity"])]
         return ", ".join(parts)
 
     last_order = same_day.groupby("Customer Code").apply(combine_items).rename("Last Order")
