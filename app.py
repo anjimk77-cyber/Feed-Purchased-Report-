@@ -24,7 +24,7 @@ st.set_page_config(page_title="Customer Feed Purchase Report", layout="wide")
 SHEET_ID = "1S3csAE-E_hN8vstuHR0KkeAN7yCVQTFe4AkEVlw4vQw"
 DEFAULT_GID = "0"                 # tab (gid) of the sales data sheet
 FEED_PREFIX = "FEED"              # Item No. prefix that identifies "feed" items
-CUSTOMER_LIST_PATH = "customer_list.xlsx"   # <-- change to match the filename you committed to GitHub
+CUSTOMER_LIST_PATH = "Customer List.xlsx"   # <-- change to match the filename you committed to GitHub
 
 # ----------------------------------------------------------------------
 # DATA LOADERS
