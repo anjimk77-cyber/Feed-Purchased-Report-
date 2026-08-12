@@ -339,11 +339,7 @@ if report_choice == "Last Feed Purchase Date Report":
                         "Due date last Purchase", "Remarks", "Last Order"]
         table = filtered[DISPLAY_COLS]
 
-        st.dataframe(
-            table,
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.table(table.style.hide(axis="index"))
 
         excel_bytes = build_excel(report_df, selected_zones, DISPLAY_COLS)
         st.download_button(
@@ -388,11 +384,7 @@ elif report_choice == "Item Wise Custom Feed Purchased Report":
         item_table["Date"] = item_table["Date"].dt.strftime("%Y-%m-%d")
         item_table = item_table.reset_index(drop=True)
 
-        st.dataframe(
-            item_table,
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.table(item_table.style.hide(axis="index"))
 
         item_excel_bytes = build_item_excel(
             item_table,
