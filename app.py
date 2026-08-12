@@ -19,7 +19,7 @@ import streamlit as st
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
-st.set_page_config(page_title="Customer Feed Purchase Report", layout="wide",page_icon="📦")
+st.set_page_config(page_title="Customer Feed Purchase Report", layout="wide")
 
 # ----------------------------------------------------------------------
 # CONFIG — edit these if your sheet changes
@@ -151,6 +151,21 @@ def build_report(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
     return report.sort_values("Customer Code").reset_index(drop=True)
 
 
+def get_feed_sales(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
+    """
+    Same feed-only, no-returns filter used by build_report, exposed standalone
+    so the Item Wise Custom Feed Purchased Report can reuse it without
+    touching build_report's own logic.
+    """
+    sales = sales.merge(customers, on="Customer Code", how="left")
+    if "Customer Name (Master)" in sales.columns:
+        sales["Customer Name"] = sales["Customer Name"].fillna(sales["Customer Name (Master)"])
+    feed_sales = sales[
+        sales["Item No."].str.upper().str.startswith(FEED_PREFIX) & (sales["Quantity"] > 0)
+    ].copy()
+    return feed_sales
+
+
 # ----------------------------------------------------------------------
 # EXCEL EXPORT — one sheet, zone blocks stacked one after another
 # ----------------------------------------------------------------------
@@ -210,9 +225,48 @@ def build_excel(report_df: pd.DataFrame, zones_in_order: list, display_cols: lis
 
 
 # ----------------------------------------------------------------------
+# EXCEL EXPORT — flat table, used by the Item Wise Custom Feed Purchased Report
+# ----------------------------------------------------------------------
+def build_item_excel(df: pd.DataFrame) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Item Wise Report"
+
+    header_font = Font(bold=True)
+    center_align = Alignment(horizontal="center", vertical="center")
+    thin = Side(style="thin", color="000000")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    cols = list(df.columns)
+    for col_idx, col_name in enumerate(cols, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=col_name)
+        cell.font = header_font
+        cell.alignment = center_align
+        cell.border = border
+
+    for r_idx, (_, data_row) in enumerate(df.iterrows(), start=2):
+        for col_idx, col_name in enumerate(cols, start=1):
+            cell = ws.cell(row=r_idx, column=col_idx, value=data_row[col_name])
+            cell.alignment = center_align
+            cell.border = border
+
+    for col_idx, col_name in enumerate(cols, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = max(18, len(col_name) + 2)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+# ----------------------------------------------------------------------
 # UI
 # ----------------------------------------------------------------------
-st.title("📦 Customer Feed Purchase Report")
+report_choice = st.radio(
+    "Select Report",
+    ["Last Feed Purchase Date Report", "Item Wise Custom Feed Purchased Report"],
+)
+
+st.title(f"📦 {report_choice}")
 
 try:
     sales_df = load_sales_data(SHEET_ID, DEFAULT_GID)
@@ -221,37 +275,80 @@ except Exception as e:
     st.error(f"Error loading data: {e}")
     st.stop()
 
-report_df = build_report(sales_df, customers_df)
+if report_choice == "Last Feed Purchase Date Report":
+    report_df = build_report(sales_df, customers_df)
 
-# Zone-wise slicer — table only appears after a zone is picked
-zones = sorted([z for z in report_df["Zone"].dropna().unique() if z and z != "nan"])
+    # Zone-wise slicer — table only appears after a zone is picked
+    zones = sorted([z for z in report_df["Zone"].dropna().unique() if z and z != "nan"])
 
-st.subheader("🌍 Select Zone")
-selected_zones = st.multiselect("Zone", options=zones, placeholder="Choose one or more zones...")
+    st.subheader("🌍 Select Zone")
+    selected_zones = st.multiselect("Zone", options=zones, placeholder="Choose one or more zones...")
 
-if not selected_zones:
-    st.info("👆 Select at least one zone above to display the report.")
-    st.stop()
+    if not selected_zones:
+        st.info("👆 Select at least one zone above to display the report.")
+    else:
+        filtered = report_df[report_df["Zone"].isin(selected_zones)]
 
-filtered = report_df[report_df["Zone"].isin(selected_zones)]
+        DISPLAY_COLS = ["Customer Code", "Customer Name", "Last Feed Purchase Date",
+                        "Due date last Purchase", "Remarks", "Last Order"]
+        table = filtered[DISPLAY_COLS]
 
-DISPLAY_COLS = ["Customer Code", "Customer Name", "Last Feed Purchase Date",
-                "Due date last Purchase", "Remarks", "Last Order"]
-table = filtered[DISPLAY_COLS]
+        st.dataframe(
+            table,
+            use_container_width=True,
+            hide_index=True,
+        )
 
-# ----------------------------------------------------------------------
-# DISPLAY
-# ----------------------------------------------------------------------
-st.dataframe(
-    table,
-    use_container_width=True,
-    hide_index=True,
-)
+        excel_bytes = build_excel(report_df, selected_zones, DISPLAY_COLS)
+        st.download_button(
+            "⬇️ Download Excel Report",
+            data=excel_bytes,
+            file_name="feed_purchase_report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
-excel_bytes = build_excel(report_df, selected_zones, DISPLAY_COLS)
-st.download_button(
-    "⬇️ Download Excel Report",
-    data=excel_bytes,
-    file_name="feed_purchase_report.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-)
+else:  # Item Wise Custom Feed Purchased Report
+    feed_sales_all = get_feed_sales(sales_df, customers_df)
+
+    item_options = sorted(feed_sales_all["Item Description"].dropna().unique())
+    min_date = feed_sales_all["Date"].min()
+    max_date = feed_sales_all["Date"].max()
+
+    st.subheader("🔍 Select Item & Date Range")
+    selected_item = st.selectbox("Item Description", options=item_options)
+    date_range = st.date_input(
+        "Date Range",
+        value=(min_date.date(), max_date.date()),
+        min_value=min_date.date(),
+        max_value=max_date.date(),
+    )
+
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        start_date, end_date = date_range
+        mask = (
+            (feed_sales_all["Item Description"] == selected_item)
+            & (feed_sales_all["Date"] >= pd.Timestamp(start_date))
+            & (feed_sales_all["Date"] <= pd.Timestamp(end_date))
+        )
+        item_table = feed_sales_all.loc[
+            mask, ["Date", "Item Description", "Customer Code", "Customer Name", "Quantity"]
+        ].copy()
+        item_table = item_table.sort_values("Date")
+        item_table["Date"] = item_table["Date"].dt.strftime("%Y-%m-%d")
+        item_table = item_table.reset_index(drop=True)
+
+        st.dataframe(
+            item_table,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        item_excel_bytes = build_item_excel(item_table)
+        st.download_button(
+            "⬇️ Download Excel Report",
+            data=item_excel_bytes,
+            file_name="item_wise_feed_purchase_report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    else:
+        st.info("👆 Select a start and end date to display the report.")
