@@ -17,7 +17,7 @@ import io
 import pandas as pd
 import streamlit as st
 from openpyxl import Workbook
-from openpyxl.styles import Font
+from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
 st.set_page_config(page_title="Customer Feed Purchase Report", layout="wide")
 
@@ -161,12 +161,19 @@ def build_excel(report_df: pd.DataFrame, zones_in_order: list, display_cols: lis
 
     zone_font = Font(bold=True, size=13)
     header_font = Font(bold=True)
+    due_font = Font(bold=True)
+    center_align = Alignment(horizontal="center", vertical="center")
+    thin = Side(style="thin", color="000000")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+
+    due_col_idx = display_cols.index("Due date last Purchase") + 1
 
     row = 1
     for zone in zones_in_order:
         zone_table = report_df[report_df["Zone"] == zone][display_cols]
 
-        # Zone name row
+        # Zone name row (no border/fill — just a section title)
         ws.cell(row=row, column=1, value=zone).font = zone_font
         row += 1
 
@@ -174,12 +181,21 @@ def build_excel(report_df: pd.DataFrame, zones_in_order: list, display_cols: lis
         for col_idx, col_name in enumerate(display_cols, start=1):
             cell = ws.cell(row=row, column=col_idx, value=col_name)
             cell.font = header_font
+            cell.alignment = center_align
+            cell.border = border
+            if col_idx == due_col_idx:
+                cell.fill = yellow_fill
         row += 1
 
         # Data rows
         for _, data_row in zone_table.iterrows():
             for col_idx, col_name in enumerate(display_cols, start=1):
-                ws.cell(row=row, column=col_idx, value=data_row[col_name])
+                cell = ws.cell(row=row, column=col_idx, value=data_row[col_name])
+                cell.alignment = center_align
+                cell.border = border
+                if col_idx == due_col_idx:
+                    cell.fill = yellow_fill
+                    cell.font = due_font
             row += 1
 
         # Blank spacer row before the next zone
