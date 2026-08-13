@@ -22,7 +22,7 @@ from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
 REPORT_OPTIONS = ["Last Feed Purchase Date Report", "Item Wise Custom Feed Purchased Report", "Sales Performance Dashboard"]
 _current_report = st.session_state.get("report_choice", REPORT_OPTIONS[0])
-st.set_page_config(page_title=_current_report, layout="wide",page_icon="📦")
+st.set_page_config(page_title=_current_report, layout="wide", page_icon="📦")
 
 # ----------------------------------------------------------------------
 # CONFIG — edit these if your sheet changes
@@ -203,6 +203,37 @@ def build_sales_dashboard_data(sales: pd.DataFrame, customers: pd.DataFrame):
 
     zone_df = pd.DataFrame(zone_rows).sort_values("Zone").reset_index(drop=True)
     return overall, zone_df
+
+
+def build_weekly_zone_metrics(sales: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
+    """
+    Week-by-week, zone-wise totals for the 5 metrics, used to draw the
+    Sales Performance Dashboard's weekly line charts. Each metric matches
+    the same definition used in build_sales_dashboard_data's metrics_for().
+    """
+    merged = sales.merge(customers, on="Customer Code", how="left")
+    item_no = merged["Item No."].str.upper()
+    is_feed = item_no.str.startswith(FEED_PREFIX)
+    is_prob = item_no.str.startswith(PROB_PREFIX)
+    is_return = merged["Quantity"] < 0
+
+    merged["Total Sales"] = merged["Sales Amt"]
+    merged["Total Feed Sales"] = merged["Sales Amt"].where(is_feed, 0)
+    merged["Total Probiotic Sales"] = merged["Sales Amt"].where(is_prob, 0)
+    merged["Total Returns of Feed"] = (-merged["Sales Amt"]).where(is_feed & is_return, 0)
+    merged["Total Returns of Probiotic"] = (-merged["Sales Amt"]).where(is_prob & is_return, 0)
+
+    merged["Week"] = merged["Date"].dt.to_period("W").apply(lambda p: p.start_time)
+
+    weekly = (
+        merged.groupby(["Week", "Zone"])[
+            ["Total Sales", "Total Feed Sales", "Total Probiotic Sales",
+             "Total Returns of Feed", "Total Returns of Probiotic"]
+        ]
+        .sum()
+        .reset_index()
+    )
+    return weekly
 
 
 # ----------------------------------------------------------------------
@@ -467,5 +498,19 @@ else:  # Sales Performance Dashboard
                     text=alt.Text(f"{metric}:Q", format=",.0f")
                 )
                 st.altair_chart(bars + labels, use_container_width=True)
+
+            st.markdown("---")
+            st.subheader("📈 Week by Week Trend (Chilaw, Puttalam, Middle Zone, Batticaloa)")
+
+            weekly = build_weekly_zone_metrics(sales_df_dash, customers_df)
+            weekly = weekly[weekly["Zone"].notna() & (weekly["Zone"] != "nan")]
+
+            if weekly.empty:
+                st.info("No weekly data available for the selected date range.")
+            else:
+                for metric in trend_metrics:
+                    st.markdown(f"**{metric}**")
+                    pivot_df = weekly.pivot(index="Week", columns="Zone", values=metric).fillna(0).sort_index()
+                    st.line_chart(pivot_df)
     else:
         st.info("👆 Select a start and end date to display the dashboard.")
